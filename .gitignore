@@ -1,0 +1,27 @@
+# C/C++ build artifacts
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.ilk
+*.pdb
+
+# Build-system output
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# Executables produced by the projects in this folder
+Blackjack_Game/blackjack
+Currency_Exchange/currency_exchange
+Employee_Management_System/employee_system
+Unsigned_Big_Integer_Calculator/calculator
+
+# Windows internet-origin metadata sidecar files
+*:Zone.Identifier

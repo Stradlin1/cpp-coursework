@@ -1,0 +1,21 @@
+name: C++ coursework regression
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile affected projects
+        run: |
+          g++ -std=c++17 -Wall -Wextra -pedantic Blackjack_Game/blackjack.cpp -o /tmp/blackjack
+          g++ -std=c++17 -Wall -Wextra -pedantic Employee_Management_System/employee_system.cpp -o /tmp/employee_system
+      - name: Test Blackjack settlement
+        run: |
+          g++ -std=c++17 -Wall -Wextra -pedantic Blackjack_Game/tests/test_round_rules.cpp -o /tmp/test_round_rules
+          /tmp/test_round_rules
+      - name: Test employee promotion and persistence
+        run: python3 Employee_Management_System/tests/test_promotion.py

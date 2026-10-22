@@ -1,4 +1,5 @@
 #include <algorithm>
+#include "round_rules.h"
 #include <iostream>
 #include <memory>
 #include <random>
@@ -232,11 +233,16 @@ private:
         std::cout << "庄家：" << dealerResult << '\n';
         for (const auto& player : players_) {
             std::cout << player->name() << "：";
-            if (player->hand().busted) std::cout << "失败（玩家爆牌）";
-            else if (dealer_.hand().busted) std::cout << "胜利（庄家爆牌）";
-            else if (player->hand().score() > dealer_.hand().score()) std::cout << "胜利";
-            else if (player->hand().score() == dealer_.hand().score()) std::cout << "平局";
-            else std::cout << "失败";
+            const RoundOutcome outcome =
+                judgeRound(player->hand().score(), dealer_.hand().score());
+            if (outcome == RoundOutcome::Draw) {
+                std::cout << (player->hand().busted && dealer_.hand().busted
+                                  ? "平局（双方爆牌）" : "平局");
+            } else if (outcome == RoundOutcome::Win) {
+                std::cout << (dealer_.hand().busted ? "胜利（庄家爆牌）" : "胜利");
+            } else {
+                std::cout << (player->hand().busted ? "失败（玩家爆牌）" : "失败");
+            }
             std::cout << '\n';
         }
     }

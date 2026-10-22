@@ -62,7 +62,8 @@ public:
     explicit Employee(std::string name) : name_(std::move(name)) {}
     virtual ~Employee() = default;
     virtual std::string role() const = 0;
-    virtual int level() const = 0;
+    int level() const { return level_; }
+    virtual int targetLevel() const = 0;
     virtual double salary(double departmentSales) const = 0;
     virtual Role roleCode() const = 0;
     virtual double extraValue() const { return 0; }
@@ -71,12 +72,25 @@ public:
     int id() const { return id_; }
     const std::string& name() const { return name_; }
     void setId(int id) { id_ = id; }
+    // 新员工从 1 级开始，一次晋升到该职位规定的级别。
+    bool promote() {
+        if (level_ >= targetLevel()) return false;
+        level_ = targetLevel();
+        return true;
+    }
+    // 恢复持久化数据时校验级别，不能超过该职位上限。
+    bool restoreLevel(int savedLevel) {
+        if (savedLevel < 1 || savedLevel > targetLevel()) return false;
+        level_ = savedLevel;
+        return true;
+    }
     virtual void displayExtra() const {}
     virtual void editExtra() = 0;
 
 protected:
     std::string name_;
     int id_ = 0;
+    int level_ = 1;
 };
 
 class FixedEmployee : public Employee {
@@ -120,7 +134,7 @@ class GeneralManager final : public FixedEmployee {
 public:
     using FixedEmployee::FixedEmployee;
     std::string role() const override { return "总经理"; }
-    int level() const override { return 4; }
+    int targetLevel() const override { return 4; }
     double salary(double) const override { return 20000; }
     Role roleCode() const override { return Role::GeneralManager; }
 };
@@ -129,7 +143,7 @@ class TechnicalManager final : public BonusEmployee {
 public:
     explicit TechnicalManager(std::string name) : BonusEmployee(std::move(name), 12000) {}
     std::string role() const override { return "技术经理"; }
-    int level() const override { return 3; }
+    int targetLevel() const override { return 3; }
     Role roleCode() const override { return Role::TechnicalManager; }
 };
 
@@ -137,7 +151,7 @@ class Technician final : public BonusEmployee {
 public:
     explicit Technician(std::string name) : BonusEmployee(std::move(name), 6000) {}
     std::string role() const override { return "技术人员"; }
-    int level() const override { return 2; }
+    int targetLevel() const override { return 2; }
     Role roleCode() const override { return Role::Technician; }
 };
 
@@ -145,7 +159,7 @@ class SalesManager final : public Employee {
 public:
     using Employee::Employee;
     std::string role() const override { return "销售经理"; }
-    int level() const override { return 3; }
+    int targetLevel() const override { return 3; }
     double salary(double departmentSales) const override { return 8000 + departmentSales * 0.005; }
     void editExtra() override {}
     Role roleCode() const override { return Role::SalesManager; }
@@ -155,7 +169,7 @@ class Salesperson final : public SalesEmployee {
 public:
     explicit Salesperson(std::string name) : SalesEmployee(std::move(name), 0, 0.01) {}
     std::string role() const override { return "销售人员"; }
-    int level() const override { return 1; }
+    int targetLevel() const override { return 1; }
     Role roleCode() const override { return Role::Salesperson; }
 };
 
@@ -191,7 +205,8 @@ public:
                       << (userRole_ == UserRole::Administrator ? "管理员" : "普通用户") << "）\n"
                       << "1. 显示全部\n2. 查询员工\n3. 计算月薪总额\n";
             if (userRole_ == UserRole::Administrator) {
-                std::cout << "4. 录入员工\n5. 修改员工\n6. 删除员工\n7. 查看操作日志\n";
+                std::cout << "4. 录入员工\n5. 修改员工\n6. 删除员工\n"
+                          << "7. 查看操作日志\n8. 晋升员工级别\n";
             }
             std::cout << "0. 退出\n请选择：";
             if (!(std::cin >> choice)) {
@@ -208,6 +223,7 @@ public:
                 case 5: if (isAdministrator()) edit(); else deny(); break;
                 case 6: if (isAdministrator()) remove(); else deny(); break;
                 case 7: if (isAdministrator()) showLog(); else deny(); break;
+                case 8: if (isAdministrator()) promoteEmployee(); else deny(); break;
                 case 0: break;
                 default: std::cout << "没有这个选项。\n";
             }
@@ -301,13 +317,27 @@ private:
 
     void load() {
         std::ifstream input(storageFile_);
-        int role = 0;
-        std::string name;
-        double extra = 0;
-        while (input >> role >> std::quoted(name) >> extra) {
+        std::string line;
+        while (std::getline(input, line)) {
+            std::istringstream record(line);
+            int role = 0;
+            std::string name;
+            double extra = 0;
+            if (!(record >> role >> std::quoted(name) >> extra)) continue;
             if (role < 1 || role > 5 || !std::isfinite(extra) || extra < 0) continue;
             auto employee = EmployeeFactory::create(static_cast<Role>(role), name);
             if (employee == nullptr) continue;
+
+            // 旧版数据为三列，此前员工直接显示职位对应级别；
+            // 缺少级别字段时保持旧级别，避免已有员工被意外降级。
+            int savedLevel = employee->targetLevel();
+            record >> std::ws;
+            if (!record.eof()) {
+                if (!(record >> savedLevel)) continue;
+                record >> std::ws;
+                if (!record.eof()) continue;
+            }
+            if (!employee->restoreLevel(savedLevel)) continue;
             employee->setExtraValue(extra);
             employees_.push_back(std::move(employee));
         }
@@ -324,7 +354,7 @@ private:
         for (const auto& employee : employees_) {
             output << static_cast<int>(employee->roleCode()) << ' '
                    << std::quoted(employee->name()) << ' '
-                   << employee->extraValue() << '\n';
+                   << employee->extraValue() << ' ' << employee->level() << '\n';
         }
     }
 
@@ -478,6 +508,26 @@ private:
         logOperation("修改员工 | 编号=" + std::to_string(id)
                      + " | 姓名=" + employee->name());
         std::cout << "修改成功。\n";
+    }
+
+    void promoteEmployee() {
+        std::cout << "请输入要晋升的员工编号：";
+        int id = 0;
+        if (!(std::cin >> id)) { clearInput(); std::cout << "编号无效。\n"; return; }
+        Employee* employee = find(id);
+        if (employee == nullptr) { std::cout << "未找到员工。\n"; return; }
+        const int oldLevel = employee->level();
+        if (!employee->promote()) {
+            std::cout << employee->name() << " 已达到该职位最高级别（"
+                      << oldLevel << " 级），无需晋升。\n";
+            return;
+        }
+        logOperation("员工晋升 | 编号=" + std::to_string(id)
+                     + " | 姓名=" + employee->name()
+                     + " | 级别=" + std::to_string(oldLevel)
+                     + "->" + std::to_string(employee->level()));
+        std::cout << "晋升成功：" << employee->name() << "，级别 "
+                  << oldLevel << " -> " << employee->level() << "\n";
     }
 
     void remove() {

@@ -109,22 +109,32 @@ public:
         if (divisor.isZero()) throw std::domain_error("除数不能为零");
         if (isZero()) return "0.0e+0";
 
-        const long double numerator = leadingMantissa(digits_);
-        const long double denominator = leadingMantissa(divisor.digits_);
-        long double mantissa = numerator / denominator;
-        int scientificExponent =
-            static_cast<int>(digits_.size()) - static_cast<int>(divisor.digits_.size());
-        while (mantissa >= 10.0L) mantissa /= 10.0L;
-        while (mantissa < 1.0L) {
-            mantissa *= 10.0L;
-            --scientificExponent;
+        // 用完整整数确定指数和两位有效数字，避免截取前缀造成舍入错误。
+        int exponent = static_cast<int>(digits_.size()) -
+                       static_cast<int>(divisor.digits_.size());
+        std::string numerator = digits_;
+        std::string denominator = divisor.digits_;
+        if (exponent >= 0) denominator.append(static_cast<size_t>(exponent), '0');
+        else numerator.append(static_cast<size_t>(-exponent), '0');
+        UnsignedBigInteger scaledNumerator(numerator);
+        const UnsignedBigInteger scaledDenominator(denominator);
+        if (scaledNumerator.compare(scaledDenominator) < 0) {
+            numerator.push_back('0');
+            --exponent;
         }
-
-        std::ostringstream output;
-        output << std::fixed << std::setprecision(1)
-               << static_cast<double>(mantissa) << 'e'
-               << (scientificExponent >= 0 ? "+" : "") << scientificExponent;
-        return output.str();
+        // 放大十倍取两位整数，按完整余数执行四舍五入。
+        scaledNumerator = UnsignedBigInteger(numerator + "0");
+        const auto quotient = divideStrings(scaledNumerator, scaledDenominator);
+        int significant = std::stoi(quotient.first);  // 范围 10..99
+        if ((UnsignedBigInteger(quotient.second) * UnsignedBigInteger("2"))
+                .compare(scaledDenominator) >= 0) ++significant;
+        if (significant == 100) {
+            significant = 10;
+            ++exponent;
+        }
+        return std::to_string(significant / 10) + "." +
+               std::to_string(significant % 10) + "e" +
+               (exponent >= 0 ? "+" : "") + std::to_string(exponent);
     }
 
     friend std::ostream& operator<<(std::ostream& output,
@@ -167,11 +177,7 @@ private:
         digits_ = first == std::string::npos ? "0" : digits_.substr(first);
     }
 
-    static long double leadingMantissa(const std::string& digits) {
-        const size_t count = std::min<size_t>(3, digits.size());
-        return std::stold(digits.substr(0, count)) /
-               std::pow(10.0L, static_cast<int>(count) - 1);
-    }
+
 };
 
 namespace {
@@ -249,7 +255,7 @@ int main() {
         std::string right;
         char op = 0;
         if (!parseExpression(line, left, op, right)) {
-            std::cout << "错误：请输入两个无符号整数和一个 +、-、*、/ 运算符。\n";
+            std::cout << "错误：请输入两个无符号整数和一个 +、-、*、/、% 运算符。\n";
             continue;
         }
         calculate(left, op, right);

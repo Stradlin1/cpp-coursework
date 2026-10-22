@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <stdexcept>
 #include <cmath>
 #include <ctime>
 #include <fstream>
@@ -12,6 +13,17 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+template <typename T>
+bool readNumber(T& value) {
+    std::string token;
+    if (!(std::cin >> token)) return false;
+    std::istringstream input(token);
+    T parsed{};
+    if (!(input >> parsed) || input.peek() != std::char_traits<char>::eof()) return false;
+    value = parsed;
+    return true;
+}
 
 enum class Role { GeneralManager = 1, TechnicalManager, Technician, SalesManager, Salesperson };
 enum class UserRole { Administrator, Viewer };
@@ -50,7 +62,8 @@ double readMoney(const char* prompt) {
     while (true) {
         std::cout << prompt;
         double value = 0;
-        if (std::cin >> value && std::isfinite(value) && value >= 0) return value;
+        if (readNumber(value) && std::isfinite(value) && value >= 0) return value;
+        if (std::cin.eof()) throw std::runtime_error("输入结束，未完成的操作已取消");
         std::cin.clear();
         std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
         std::cout << "请输入非负数字。\n";
@@ -62,7 +75,9 @@ public:
     explicit Employee(std::string name) : name_(std::move(name)) {}
     virtual ~Employee() = default;
     virtual std::string role() const = 0;
-    virtual int level() const = 0;
+    int level() const { return level_; }
+    void promote() { level_ = targetLevel(); }
+    virtual int targetLevel() const = 0;
     virtual double salary(double departmentSales) const = 0;
     virtual Role roleCode() const = 0;
     virtual double extraValue() const { return 0; }
@@ -77,6 +92,7 @@ public:
 protected:
     std::string name_;
     int id_ = 0;
+    int level_ = 1;  // 所有新对象从 1 级开始，由升级操作设置课程指定级别。
 };
 
 class FixedEmployee : public Employee {
@@ -120,7 +136,7 @@ class GeneralManager final : public FixedEmployee {
 public:
     using FixedEmployee::FixedEmployee;
     std::string role() const override { return "总经理"; }
-    int level() const override { return 4; }
+    int targetLevel() const override { return 4; }
     double salary(double) const override { return 20000; }
     Role roleCode() const override { return Role::GeneralManager; }
 };
@@ -129,7 +145,7 @@ class TechnicalManager final : public BonusEmployee {
 public:
     explicit TechnicalManager(std::string name) : BonusEmployee(std::move(name), 12000) {}
     std::string role() const override { return "技术经理"; }
-    int level() const override { return 3; }
+    int targetLevel() const override { return 3; }
     Role roleCode() const override { return Role::TechnicalManager; }
 };
 
@@ -137,7 +153,7 @@ class Technician final : public BonusEmployee {
 public:
     explicit Technician(std::string name) : BonusEmployee(std::move(name), 6000) {}
     std::string role() const override { return "技术人员"; }
-    int level() const override { return 2; }
+    int targetLevel() const override { return 2; }
     Role roleCode() const override { return Role::Technician; }
 };
 
@@ -145,7 +161,7 @@ class SalesManager final : public Employee {
 public:
     using Employee::Employee;
     std::string role() const override { return "销售经理"; }
-    int level() const override { return 3; }
+    int targetLevel() const override { return 3; }
     double salary(double departmentSales) const override { return 8000 + departmentSales * 0.005; }
     void editExtra() override {}
     Role roleCode() const override { return Role::SalesManager; }
@@ -155,21 +171,23 @@ class Salesperson final : public SalesEmployee {
 public:
     explicit Salesperson(std::string name) : SalesEmployee(std::move(name), 0, 0.01) {}
     std::string role() const override { return "销售人员"; }
-    int level() const override { return 1; }
+    int targetLevel() const override { return 1; }
     Role roleCode() const override { return Role::Salesperson; }
 };
 
 class EmployeeFactory {
 public:
     static std::unique_ptr<Employee> create(Role role, const std::string& name) {
+        std::unique_ptr<Employee> employee;
         switch (role) {
-            case Role::GeneralManager: return std::make_unique<GeneralManager>(name);
-            case Role::TechnicalManager: return std::make_unique<TechnicalManager>(name);
-            case Role::Technician: return std::make_unique<Technician>(name);
-            case Role::SalesManager: return std::make_unique<SalesManager>(name);
-            case Role::Salesperson: return std::make_unique<Salesperson>(name);
+            case Role::GeneralManager: employee = std::make_unique<GeneralManager>(name); break;
+            case Role::TechnicalManager: employee = std::make_unique<TechnicalManager>(name); break;
+            case Role::Technician: employee = std::make_unique<Technician>(name); break;
+            case Role::SalesManager: employee = std::make_unique<SalesManager>(name); break;
+            case Role::Salesperson: employee = std::make_unique<Salesperson>(name); break;
         }
-        return nullptr;
+        if (employee) employee->promote();
+        return employee;
     }
 };
 
@@ -180,12 +198,12 @@ public:
           logFile_(executablePath.parent_path() / "employee_operations.log") {
         load();
     }
-    ~EmployeeSystem() { save(); }
+    ~EmployeeSystem() { if (dirty_) save(); }
 
     void run() {
         if (!login()) return;
         int choice = 0;
-        do {
+        while (true) {
             std::cout << "\n========== 公司职员管理系统 ==========\n"
                       << "当前用户：" << username_ << "（"
                       << (userRole_ == UserRole::Administrator ? "管理员" : "普通用户") << "）\n"
@@ -194,7 +212,7 @@ public:
                 std::cout << "4. 录入员工\n5. 修改员工\n6. 删除员工\n7. 查看操作日志\n";
             }
             std::cout << "0. 退出\n请选择：";
-            if (!(std::cin >> choice)) {
+            if (!(readNumber(choice))) {
                 if (std::cin.eof()) break;
                 clearInput();
                 std::cout << "请输入数字。\n";
@@ -208,20 +226,22 @@ public:
                 case 5: if (isAdministrator()) edit(); else deny(); break;
                 case 6: if (isAdministrator()) remove(); else deny(); break;
                 case 7: if (isAdministrator()) showLog(); else deny(); break;
-                case 0: break;
+                case 0: return;
                 default: std::cout << "没有这个选项。\n";
             }
-        } while (choice != 0);
+        }
     }
 
 private:
     std::vector<std::unique_ptr<Employee>> employees_;
     std::filesystem::path storageFile_;
     std::filesystem::path logFile_;
+    bool dirty_ = false;
     std::string username_;
     UserRole userRole_ = UserRole::Viewer;
 
     static void clearInput() {
+        if (std::cin.eof()) throw std::runtime_error("输入结束，未完成的操作已取消");
         std::cin.clear();
         std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     }
@@ -292,22 +312,35 @@ private:
     }
 
     double departmentSales() const {
-        return std::accumulate(employees_.begin(), employees_.end(), 0.0,
+        const double sales = std::accumulate(employees_.begin(), employees_.end(), 0.0,
             [](double total, const std::unique_ptr<Employee>& employee) {
                 return total + (employee->roleCode() == Role::Salesperson
                                     ? employee->extraValue() : 0.0);
             });
+        if (!std::isfinite(sales)) throw std::runtime_error("部门销售额超出可表示范围");
+        return sales;
     }
 
     void load() {
         std::ifstream input(storageFile_);
-        int role = 0;
-        std::string name;
-        double extra = 0;
-        while (input >> role >> std::quoted(name) >> extra) {
-            if (role < 1 || role > 5 || !std::isfinite(extra) || extra < 0) continue;
+        std::string line;
+        while (std::getline(input, line)) {
+            std::istringstream record(line);
+            int role = 0;
+            std::string name;
+            double extra = 0;
+            if (!(record >> role >> std::quoted(name) >> extra) ||
+                !(record >> std::ws).eof() || name.find_first_not_of(" \t\r") == std::string::npos ||
+                role < 1 || role > 5 || !std::isfinite(extra) || extra < 0) {
+                std::cerr << "警告：跳过无效员工记录。\n";
+                continue;
+            }
+            if (std::any_of(employees_.begin(), employees_.end(),
+                    [&name](const auto& employee) { return employee->name() == name; })) {
+                std::cerr << "警告：跳过重名员工记录。\n";
+                continue;
+            }
             auto employee = EmployeeFactory::create(static_cast<Role>(role), name);
-            if (employee == nullptr) continue;
             employee->setExtraValue(extra);
             employees_.push_back(std::move(employee));
         }
@@ -367,7 +400,7 @@ private:
     void add() {
         std::cout << "1.总经理 2.技术经理 3.技术人员 4.销售经理 5.销售人员\n请选择职位：";
         int choice = 0;
-        if (!(std::cin >> choice) || choice < 1 || choice > 5) {
+        if (!(readNumber(choice)) || choice < 1 || choice > 5) {
             clearInput();
             std::cout << "职位选择无效。\n";
             return;
@@ -387,6 +420,7 @@ private:
         employee->editExtra();
         employees_.push_back(std::move(employee));
         reindex();
+        dirty_ = true;
         logOperation("新增员工 | 编号=" + std::to_string(employees_.back()->id())
                      + " | 姓名=" + employees_.back()->name());
         std::cout << "录入成功。\n";
@@ -407,7 +441,7 @@ private:
                   << "0. 返回上级\n"
                   << "请选择：";
         int choice = 0;
-        if (!(std::cin >> choice)) {
+        if (!(readNumber(choice))) {
             clearInput();
             std::cout << "查询方式无效。\n";
             return;
@@ -418,7 +452,7 @@ private:
         if (choice == 1) {
             std::cout << "请输入员工编号：";
             int id = 0;
-            if (!(std::cin >> id)) {
+            if (!(readNumber(id))) {
                 clearInput();
                 std::cout << "编号无效。\n";
                 return;
@@ -436,7 +470,7 @@ private:
             std::cout << "1.总经理 2.技术经理 3.技术人员 4.销售经理 5.销售人员\n"
                       << "请选择职位：";
             int role = 0;
-            if (!(std::cin >> role) || role < 1 || role > 5) {
+            if (!(readNumber(role)) || role < 1 || role > 5) {
                 clearInput();
                 std::cout << "职位无效。\n";
                 return;
@@ -447,7 +481,7 @@ private:
         } else if (choice == 4) {
             std::cout << "请输入级别（1-4）：";
             int level = 0;
-            if (!(std::cin >> level) || level < 1 || level > 4) {
+            if (!(readNumber(level)) || level < 1 || level > 4) {
                 clearInput();
                 std::cout << "级别无效。\n";
                 return;
@@ -471,10 +505,11 @@ private:
     void edit() {
         std::cout << "请输入要修改的员工编号：";
         int id = 0;
-        if (!(std::cin >> id)) { clearInput(); std::cout << "编号无效。\n"; return; }
+        if (!(readNumber(id))) { clearInput(); std::cout << "编号无效。\n"; return; }
         Employee* employee = find(id);
         if (employee == nullptr) { std::cout << "未找到员工。\n"; return; }
         employee->editExtra();
+        dirty_ = true;
         logOperation("修改员工 | 编号=" + std::to_string(id)
                      + " | 姓名=" + employee->name());
         std::cout << "修改成功。\n";
@@ -483,13 +518,14 @@ private:
     void remove() {
         std::cout << "请输入要删除的员工编号：";
         int id = 0;
-        if (!(std::cin >> id)) { clearInput(); std::cout << "编号无效。\n"; return; }
+        if (!(readNumber(id))) { clearInput(); std::cout << "编号无效。\n"; return; }
         const auto it = std::find_if(employees_.begin(), employees_.end(),
             [id](const auto& employee) { return employee->id() == id; });
         if (it == employees_.end()) { std::cout << "未找到员工。\n"; return; }
         const std::string name = (*it)->name();
         employees_.erase(it);
         reindex();
+        dirty_ = true;
         logOperation("删除员工 | 编号=" + std::to_string(id) + " | 姓名=" + name);
         std::cout << "删除成功。\n";
     }
@@ -509,6 +545,7 @@ private:
         const double sales = departmentSales();
         const double total = std::accumulate(employees_.begin(), employees_.end(), 0.0,
             [sales](double sum, const auto& employee) { return sum + employee->salary(sales); });
+        if (!std::isfinite(total)) throw std::runtime_error("工资总额超出可表示范围");
         std::cout << std::fixed << std::setprecision(2) << "当月薪资总额：" << total << " 元\n";
     }
 };
@@ -520,6 +557,7 @@ int main(int argc, char* argv[]) {
                      : std::filesystem::current_path() / "employee_system")
             ;
     EmployeeSystem system(executablePath);
-    system.run();
+    try { system.run(); }
+    catch (const std::runtime_error& error) { std::cout << error.what() << '\n'; }
     return 0;
 }

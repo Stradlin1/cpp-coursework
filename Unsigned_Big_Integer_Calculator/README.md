@@ -15,3 +15,5 @@
 g++ -std=c++17 -Wall -Wextra -pedantic calculator.cpp -o calculator
 ./calculator
 ```
+
+科学计数法用完整整数长除法和余数执行四舍五入，保留两位有效数字；如 `1999/1000 = 2.0e+0`，`9999/1000 = 1.0e+1`，不依赖浮点前缀估算。

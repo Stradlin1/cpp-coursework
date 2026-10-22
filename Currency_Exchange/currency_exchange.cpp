@@ -1,4 +1,5 @@
 #include <array>
+#include <sstream>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -23,6 +24,17 @@ using std::vector;
 
 namespace {
 
+template <typename T>
+bool readNumber(T& value) {
+    std::string token;
+    if (!(std::cin >> token)) return false;
+    std::istringstream input(token);
+    T parsed{};
+    if (!(input >> parsed) || input.peek() != std::char_traits<char>::eof()) return false;
+    value = parsed;
+    return true;
+}
+
 struct Currency {
     string code;
     string name;
@@ -33,7 +45,7 @@ const vector<Currency> kCurrencies{
     {"JPY", "日元"}, {"HKD", "港币"}, {"AUD", "澳元"}};
 
 bool readInteger(int& value) {
-    if (cin >> value) {
+    if (readNumber(value)) {
         return true;
     }
     if (cin.eof()) {
@@ -45,7 +57,7 @@ bool readInteger(int& value) {
 }
 
 bool readNonNegativeAmount(double& amount) {
-    if (!(cin >> amount) || !std::isfinite(amount) || amount < 0) {
+    if (!(readNumber(amount)) || !std::isfinite(amount) || amount < 0) {
         if (cin.eof()) return false;
         cin.clear();
         cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
@@ -78,9 +90,13 @@ public:
         const string command =
             "curl --fail --silent --show-error --location "
             "--connect-timeout 8 --max-time 12 "
-            "--user-agent 'CurrencyExchangeHomework/1.0' '" +
-            url + "'";
+            "--user-agent \"CurrencyExchangeHomework/1.0\" \"" +
+            url + "\"";
+#ifdef _WIN32
+        FILE* pipe = _popen(command.c_str(), "r");
+#else
         FILE* pipe = popen(command.c_str(), "r");
+#endif
         if (pipe == nullptr) {
             error = "无法启动 curl 网络工具";
             return false;
@@ -89,13 +105,17 @@ public:
         while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
             response += buffer.data();
         }
+#ifdef _WIN32
+        const int exitCode = _pclose(pipe);
+#else
         const int exitCode = pclose(pipe);
+#endif
         if (exitCode != 0) {
             error = "curl 请求失败，请检查网络连接";
             return false;
         }
 
-        const std::regex cnyPattern(R"("CNY"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))");
+        const std::regex cnyPattern(R"("CNY"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)\s*[,}])");
         std::smatch match;
         if (!std::regex_search(response, match, cnyPattern) || match.size() < 2) {
             error = "返回内容中没有有效的 CNY 汇率";
@@ -128,10 +148,13 @@ public:
         string code;
         double rate = 0;
         long long timestamp = 0;
-        while (input >> code >> rate >> timestamp) {
+        string line;
+        while (std::getline(input, line)) {
+            std::istringstream record(line);
+            if (!(record >> code >> rate >> timestamp) || !(record >> std::ws).eof()) continue;
             if (code == currency.code && std::isfinite(rate) && rate > 0) {
                 const long long now = static_cast<long long>(std::time(nullptr));
-                if (timestamp > now || now - timestamp > kMaxAgeSeconds) {
+                if (timestamp < 0 || timestamp > now || timestamp < now - kMaxAgeSeconds) {
                     error = currency.name + " 的本地缓存已过期";
                     return false;
                 }
@@ -150,14 +173,19 @@ public:
         string code;
         double oldRate = 0;
         long long oldTimestamp = 0;
-        while (input >> code >> oldRate >> oldTimestamp) {
+        string line;
+        while (std::getline(input, line)) {
+            std::istringstream record(line);
+            if (!(record >> code >> oldRate >> oldTimestamp) || !(record >> std::ws).eof()) continue;
             if (code != currency.code) {
-                lines.push_back(code + " " + std::to_string(oldRate) + " " +
-                                std::to_string(oldTimestamp));
+                lines.push_back(line);
             }
         }
-        lines.push_back(currency.code + " " + std::to_string(rate) + " " +
-                        std::to_string(static_cast<long long>(std::time(nullptr))));
+        std::ostringstream newRecord;
+        newRecord << setprecision(std::numeric_limits<double>::max_digits10)
+                  << currency.code << ' ' << rate << ' '
+                  << static_cast<long long>(std::time(nullptr));
+        lines.push_back(newRecord.str());
 
         std::ofstream output(filename_, std::ios::trunc);
         if (!output) {
@@ -276,12 +304,18 @@ private:
     void exchange(bool foreignToCny, const Currency& currency) {
         double rate = 0;
         string error;
-        cout << "正在查询 " << currency.name << " 对人民币的汇率...\n";
+        cout << "汇率方式：1. 自动查询（失败时手动输入） 2. 手动输入：";
+        int mode = 0;
+        if (!readInteger(mode) || (mode != 1 && mode != 2)) {
+            if (!cin.eof()) cout << "汇率方式无效，本次操作取消。\n";
+            return;
+        }
+        if (mode == 1) cout << "正在查询 " << currency.name << " 对人民币的汇率...\n";
         RateResult rateResult;
-        if (!rateService_.get(currency, rateResult, error)) {
-            cout << "联网查询失败：" << error << "\n"
-                 << "请手动输入 1 " << currency.name << " 兑换人民币的汇率：";
-            if (!(cin >> rate) || !std::isfinite(rate) || rate <= 0) {
+        if (mode == 2 || !rateService_.get(currency, rateResult, error)) {
+            if (mode == 1) cout << "联网查询失败：" << error << "\n";
+            cout << "请手动输入 1 " << currency.name << " 兑换人民币的汇率：";
+            if (!(readNumber(rate)) || !std::isfinite(rate) || rate <= 0) {
                 if (cin.eof()) return;
                 cin.clear();
                 cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
@@ -292,6 +326,8 @@ private:
             rateResult.source = "用户手动输入";
         }
 
+        if (mode == 1 && !error.empty() && rateResult.source != "用户手动输入")
+            cout << "联网查询失败：" << error << '\n';
         double amount = 0;
         cout << "查询到的参考汇率：1 " << currency.name << " = "
              << fixed << setprecision(6) << rateResult.rate << " 元\n"
@@ -304,6 +340,10 @@ private:
         }
 
         const double result = foreignToCny ? amount * rateResult.rate : amount / rateResult.rate;
+        if (!std::isfinite(result)) {
+            cout << "兑换结果超出可表示范围，本次操作取消。\n";
+            return;
+        }
         cout << fixed << setprecision(2)
              << "兑换结果：" << result
              << (foreignToCny ? " 元人民币" : " " + currency.name) << "\n";

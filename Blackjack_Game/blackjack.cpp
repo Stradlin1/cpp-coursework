@@ -1,10 +1,24 @@
 #include <algorithm>
+#include <sstream>
+#include <stdexcept>
+#include <limits>
 #include <iostream>
 #include <memory>
 #include <random>
 #include <string>
 #include <utility>
 #include <vector>
+
+template <typename T>
+bool readNumber(T& value) {
+    std::string token;
+    if (!(std::cin >> token)) return false;
+    std::istringstream input(token);
+    T parsed{};
+    if (!(input >> parsed) || input.peek() != std::char_traits<char>::eof()) return false;
+    value = parsed;
+    return true;
+}
 
 enum class Suit { Hearts, Diamonds, Clubs, Spades };
 enum class Rank { Two = 2, Three, Four, Five, Six, Seven, Eight, Nine, Ten,
@@ -118,9 +132,10 @@ public:
         while (true) {
             std::cout << "1. 要牌  2. 停牌：";
             int choice = 0;
-            if (std::cin >> choice && (choice == 1 || choice == 2)) return choice == 1;
+            if (readNumber(choice) && (choice == 1 || choice == 2)) return choice == 1;
+            if (std::cin.eof()) throw std::runtime_error("输入结束，牌局已取消");
             std::cin.clear();
-            std::cin.ignore(10000, '\n');
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             std::cout << "输入无效，请输入 1 或 2。\n";
         }
     }
@@ -162,9 +177,10 @@ private:
         while (true) {
             std::cout << prompt;
             int value = 0;
-            if (std::cin >> value && value >= min && value <= max) return value;
+            if (readNumber(value) && value >= min && value <= max) return value;
+            if (std::cin.eof()) throw std::runtime_error("输入结束，牌局已取消");
             std::cin.clear();
-            std::cin.ignore(10000, '\n');
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             std::cout << "输入无效，请输入 " << min << "-" << max << "。\n";
         }
     }
@@ -232,7 +248,9 @@ private:
         std::cout << "庄家：" << dealerResult << '\n';
         for (const auto& player : players_) {
             std::cout << player->name() << "：";
-            if (player->hand().busted) std::cout << "失败（玩家爆牌）";
+            if (player->hand().busted && dealer_.hand().busted)
+                std::cout << "平局（双方爆牌，按课程规则）";
+            else if (player->hand().busted) std::cout << "失败（玩家爆牌）";
             else if (dealer_.hand().busted) std::cout << "胜利（庄家爆牌）";
             else if (player->hand().score() > dealer_.hand().score()) std::cout << "胜利";
             else if (player->hand().score() == dealer_.hand().score()) std::cout << "平局";
@@ -244,6 +262,7 @@ private:
 
 int main() {
     BlackjackGame game;
-    game.run();
+    try { game.run(); }
+    catch (const std::runtime_error& error) { std::cout << error.what() << '\n'; }
     return 0;
 }

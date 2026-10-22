@@ -10,3 +10,5 @@
 g++ -std=c++17 -Wall -Wextra -pedantic blackjack.cpp -o blackjack
 ./blackjack
 ```
+
+按课程原文结算：玩家与庄家同时爆牌时平局；仅玩家爆牌时失败。输入 EOF 会取消牌局并退出。

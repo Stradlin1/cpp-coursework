@@ -8,7 +8,7 @@
 - 使用 `IRateProvider` 抽象汇率来源，在线查询和文件缓存可独立替换；
 - 联网成功后保存到 `exchange_rates.cache`，网络不可用时优先读取本地缓存；
 - 本地缓存有效期为 24 小时，过期缓存不会参与兑换；
-- 在线查询、本地缓存、用户手动输入三级降级；
+- 选择自动模式时按在线查询、本地缓存、用户手动输入三级降级；也可主动选择手动汇率；
 - 非法菜单、负数金额和无效汇率的检查。
 
 ## 编译与运行
@@ -31,4 +31,6 @@ g++ -std=c++17 -Wall -Wextra -pedantic currency_exchange.cpp -o currency_exchang
 CURRENCY_EXCHANGE_OFFLINE=1 ./currency_exchange
 ```
 
-如果缓存中没有对应币种，程序会提示手动输入汇率。
+缓存位于启动工作目录，缺失、过期、负/未来时间戳均转手动输入，不询问是否沿用过期缓存。金额与汇率必须是完整数字，汇率必须为有限正数；换算结果溢出会取消操作。
+
+Windows MSVC 编译命令见根目录 README。运行时需要命令行 curl；程序在 Windows 使用 `_popen/_pclose`。

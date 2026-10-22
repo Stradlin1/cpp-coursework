@@ -23,7 +23,7 @@
 
 ## 使用方法
 
-进入需要运行的项目目录，使用 `g++` 编译源文件。例如：
+以下四组命令分别从仓库根目录执行（每组运行后回到根目录再执行下一组）。使用 `g++` 编译源文件。例如：
 
 ```bash
 cd Blackjack_Game
@@ -80,7 +80,7 @@ Each project directory contains its source code and project documentation. The `
 
 ## Usage
 
-Enter the directory of the project you want to run and compile its source file with `g++`. For example:
+Run each command block separately from the repository root. Return to the root before trying another project. For example:
 
 ```bash
 cd Blackjack_Game
@@ -109,3 +109,25 @@ g++ -std=c++17 -Wall -Wextra calculator.cpp -o calculator
 ```
 
 Compiled executables are temporary build artifacts and are excluded from Git tracking through `.gitignore`.
+
+
+## 审查与测试
+
+- [综合实验报告](./report.md)
+- [课程要求逐项核对、修复依据及验证限制](./REVIEW.md)
+- 离线回归：在根目录运行 `python3 tests/run_tests.py`（需要 Python 3 与 g++）。
+- 外币选择币种后，选择自动或手动汇率；自动失败依次尝试 24 小时内缓存、手动输入。过期缓存直接拒绝，不询问。
+- 21 点按课程特殊规则处理双方爆牌平局。
+
+## Visual Studio / MSVC（C++17）
+
+课程要求以 VS 为主。以下命令在 VS 的“Developer Command Prompt”中从仓库根目录执行；源码保存为 UTF-8。外币运行另需命令行 `curl`。本次仅实测 Linux/g++，下列 MSVC 命令未实机验证。
+
+```bat
+cl /std:c++17 /EHsc /utf-8 /W4 Blackjack_Game\blackjack.cpp /Fe:Blackjack_Game\blackjack.exe
+cl /std:c++17 /EHsc /utf-8 /W4 Currency_Exchange\currency_exchange.cpp /Fe:Currency_Exchange\currency_exchange.exe
+cl /std:c++17 /EHsc /utf-8 /W4 Employee_Management_System\employee_system.cpp /Fe:Employee_Management_System\employee_system.exe
+cl /std:c++17 /EHsc /utf-8 /W4 Unsigned_Big_Integer_Calculator\calculator.cpp /Fe:Unsigned_Big_Integer_Calculator\calculator.exe
+```
+
+在 VS 图形界面中，每个程序建立单独控制台项目，加入对应 `.cpp`，设置 C++17 和 `/utf-8`；四个文件各有 `main`，不可放进同一个可执行项目。Windows 终端可执行 `chcp 65001` 使用 UTF-8。

@@ -57,6 +57,7 @@ bool readNonNegativeAmount(double& amount) {
 struct RateResult {
     double rate = 0;
     string source;
+    bool expired = false;
 };
 
 class IRateProvider {
@@ -131,12 +132,18 @@ public:
         while (input >> code >> rate >> timestamp) {
             if (code == currency.code && std::isfinite(rate) && rate > 0) {
                 const long long now = static_cast<long long>(std::time(nullptr));
-                if (timestamp > now || now - timestamp > kMaxAgeSeconds) {
-                    error = currency.name + " 的本地缓存已过期";
+                // 未来时间戳不是可供用户确认使用的正常过期记录。
+                if (timestamp > now) {
+                    error = currency.name + " 的本地缓存时间戳无效";
                     return false;
                 }
                 result.rate = rate;
                 result.source = "本地缓存（" + formatTime(timestamp) + "）";
+                if (now - timestamp > kMaxAgeSeconds) {
+                    result.expired = true;
+                    error = currency.name + " 的本地缓存已超过 24 小时";
+                    return false;
+                }
                 return true;
             }
         }
@@ -185,7 +192,8 @@ class RateService {
 public:
     RateService() : cache_("exchange_rates.cache") {}
 
-    bool get(const Currency& currency, RateResult& result, string& error) {
+    bool get(const Currency& currency, RateResult& result,
+             RateResult& expiredCache, string& error) {
         string onlineError;
         if (online_.get(currency, result, onlineError)) {
             cache_.put(currency, result.rate);
@@ -193,11 +201,14 @@ public:
         }
 
         string cacheError;
-        if (cache_.get(currency, result, cacheError)) {
+        RateResult cached;
+        if (cache_.get(currency, cached, cacheError)) {
+            result = cached;
             error = onlineError + "；已切换到" + result.source;
             return true;
         }
-
+        // 保留有效但过期的汇率数据，由用户界面明确询问是否采用。
+        if (cached.expired) expiredCache = cached;
         error = onlineError + "；" + cacheError;
         return false;
     }
@@ -278,9 +289,30 @@ private:
         string error;
         cout << "正在查询 " << currency.name << " 对人民币的汇率...\n";
         RateResult rateResult;
-        if (!rateService_.get(currency, rateResult, error)) {
-            cout << "联网查询失败：" << error << "\n"
-                 << "请手动输入 1 " << currency.name << " 兑换人民币的汇率：";
+        RateResult expiredCache;
+        bool available = rateService_.get(currency, rateResult, expiredCache, error);
+        if (!available) {
+            cout << "自动查询未成功：" << error << '\n';
+            if (expiredCache.expired) {
+                cout << "找到 " << expiredCache.source
+                     << "，已超过 24 小时，可能与当前汇率不符。\n"
+                     << "是否仍使用该过期汇率？(y/n)：";
+                while (true) {
+                    string answer;
+                    if (!(cin >> answer)) return;
+                    if (answer == "y" || answer == "Y") {
+                        rateResult = expiredCache;
+                        rateResult.source = "过期" + expiredCache.source + "（用户确认）";
+                        available = true;
+                        break;
+                    }
+                    if (answer == "n" || answer == "N") break;
+                    cout << "请输入 y 或 n：";
+                }
+            }
+        }
+        if (!available) {
+            cout << "请手动输入 1 " << currency.name << " 兑换人民币的汇率：";
             if (!(cin >> rate) || !std::isfinite(rate) || rate <= 0) {
                 if (cin.eof()) return;
                 cin.clear();

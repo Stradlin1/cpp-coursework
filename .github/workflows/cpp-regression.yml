@@ -19,3 +19,15 @@ jobs:
           /tmp/test_round_rules
       - name: Test employee promotion and persistence
         run: python3 Employee_Management_System/tests/test_promotion.py
+      - name: Compile remaining projects
+        run: |
+          g++ -std=c++17 -Wall -Wextra -pedantic Currency_Exchange/currency_exchange.cpp -o /tmp/currency_exchange
+          g++ -std=c++17 -Wall -Wextra -pedantic Unsigned_Big_Integer_Calculator/calculator.cpp -o /tmp/calculator
+      - name: Test expired cache confirmation
+        run: python3 Currency_Exchange/tests/test_expired_cache.py
+      - name: Test Blackjack hit display
+        run: python3 Blackjack_Game/tests/test_hit_display.py
+      - name: Test employee edits
+        run: python3 Employee_Management_System/tests/test_edit.py
+      - name: Test scientific notation
+        run: python3 Unsigned_Big_Integer_Calculator/tests/test_scientific.py

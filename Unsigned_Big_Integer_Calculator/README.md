@@ -5,7 +5,7 @@
 - 加法、减法、乘法的精确计算；
 - 使用十进制长除法实现精确商和余数，支持 `/` 与 `%`；
 - 减法结果为负数时显示负号；
-- 除法结果以两位有效数字的科学计数法显示，例如 `1.2e+19`；
+- 除法结果通过整数长除法求舍入位，严格按两位有效数字规范化输出，例如 `999 / 100 → 1.0e+1`；
 - 连续输入表达式，输入 `q` 或 `Q` 退出；
 - 除数为零和非法输入检查。
 
@@ -15,3 +15,5 @@
 g++ -std=c++17 -Wall -Wextra -pedantic calculator.cpp -o calculator
 ./calculator
 ```
+
+科学计数法回归测试：`python3 Unsigned_Big_Integer_Calculator/tests/test_scientific.py`。

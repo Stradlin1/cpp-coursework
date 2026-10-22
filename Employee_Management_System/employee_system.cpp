@@ -8,6 +8,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -46,11 +47,12 @@ void printCell(const std::string& text, int width) {
     if (padding > 0) std::cout << std::string(static_cast<size_t>(padding), ' ');
 }
 
-double readMoney(const char* prompt) {
+std::optional<double> readMoney(const char* prompt) {
     while (true) {
         std::cout << prompt;
         double value = 0;
         if (std::cin >> value && std::isfinite(value) && value >= 0) return value;
+        if (std::cin.eof()) return std::nullopt;
         std::cin.clear();
         std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
         std::cout << "请输入非负数字。\n";
@@ -71,6 +73,7 @@ public:
 
     int id() const { return id_; }
     const std::string& name() const { return name_; }
+    void setName(std::string name) { name_ = std::move(name); }
     void setId(int id) { id_ = id; }
     // 新员工从 1 级开始，一次晋升到该职位规定的级别。
     bool promote() {
@@ -85,7 +88,9 @@ public:
         return true;
     }
     virtual void displayExtra() const {}
-    virtual void editExtra() = 0;
+    virtual bool canEditExtra() const { return false; }
+    // 返回 false 表示输入结束，操作取消，不能报告修改成功。
+    virtual bool editExtra() = 0;
 
 protected:
     std::string name_;
@@ -96,7 +101,7 @@ protected:
 class FixedEmployee : public Employee {
 public:
     using Employee::Employee;
-    void editExtra() override {}
+    bool editExtra() override { return true; }
 };
 
 class BonusEmployee : public Employee {
@@ -104,7 +109,13 @@ public:
     BonusEmployee(std::string name, double base) : Employee(std::move(name)), base_(base) {}
     double salary(double) const override { return base_ + bonus_; }
     void displayExtra() const override { std::cout << "奖金=" << bonus_; }
-    void editExtra() override { bonus_ = readMoney("请输入奖金："); }
+    bool canEditExtra() const override { return true; }
+    bool editExtra() override {
+        const auto value = readMoney("请输入奖金：");
+        if (!value) return false;
+        bonus_ = *value;
+        return true;
+    }
     double extraValue() const override { return bonus_; }
     void setExtraValue(double value) override { bonus_ = value; }
 
@@ -119,7 +130,13 @@ public:
         : Employee(std::move(name)), base_(base), rate_(rate) {}
     double salary(double) const override { return base_ + sales_ * rate_; }
     void displayExtra() const override { std::cout << "销售额=" << sales_; }
-    void editExtra() override { sales_ = readMoney("请输入当月销售额："); }
+    bool canEditExtra() const override { return true; }
+    bool editExtra() override {
+        const auto value = readMoney("请输入当月销售额：");
+        if (!value) return false;
+        sales_ = *value;
+        return true;
+    }
     double sales() const { return sales_; }
     double extraValue() const override { return sales_; }
     void setExtraValue(double value) override { sales_ = value; }
@@ -161,7 +178,7 @@ public:
     std::string role() const override { return "销售经理"; }
     int targetLevel() const override { return 3; }
     double salary(double departmentSales) const override { return 8000 + departmentSales * 0.005; }
-    void editExtra() override {}
+    bool editExtra() override { return true; }
     Role roleCode() const override { return Role::SalesManager; }
 };
 
@@ -414,7 +431,7 @@ private:
             }
         }
         auto employee = EmployeeFactory::create(static_cast<Role>(choice), name);
-        employee->editExtra();
+        if (!employee->editExtra()) return;
         employees_.push_back(std::move(employee));
         reindex();
         logOperation("新增员工 | 编号=" + std::to_string(employees_.back()->id())
@@ -501,13 +518,67 @@ private:
     void edit() {
         std::cout << "请输入要修改的员工编号：";
         int id = 0;
-        if (!(std::cin >> id)) { clearInput(); std::cout << "编号无效。\n"; return; }
+        if (!(std::cin >> id)) {
+            if (!std::cin.eof()) clearInput();
+            std::cout << "编号无效。\n";
+            return;
+        }
         Employee* employee = find(id);
         if (employee == nullptr) { std::cout << "未找到员工。\n"; return; }
-        employee->editExtra();
-        logOperation("修改员工 | 编号=" + std::to_string(id)
-                     + " | 姓名=" + employee->name());
-        std::cout << "修改成功。\n";
+        std::cout << "1. 修改姓名\n2. 修改奖金/销售额\n0. 返回\n请选择：";
+        int choice = 0;
+        if (!(std::cin >> choice)) {
+            if (!std::cin.eof()) clearInput();
+            std::cout << "操作取消。\n";
+            return;
+        }
+        if (choice == 0) return;
+        if (choice == 1) {
+            const std::string newName = readName();
+            if (std::cin.eof()) return;
+            if (newName.empty()) {
+                std::cout << "姓名不能为空。\n";
+                return;
+            }
+            if (newName == employee->name()) {
+                std::cout << "姓名未发生变化，未执行修改。\n";
+                return;
+            }
+            const bool duplicate = std::any_of(
+                employees_.begin(), employees_.end(),
+                [&newName](const std::unique_ptr<Employee>& other) {
+                    return other->name() == newName;
+                });
+            if (duplicate) {
+                std::cout << "姓名已存在，未执行修改。\n";
+                return;
+            }
+            const std::string oldName = employee->name();
+            employee->setName(newName);
+            logOperation("修改员工姓名 | 编号=" + std::to_string(id)
+                         + " | 原姓名=" + oldName + " | 新姓名=" + newName);
+            std::cout << "修改成功。\n";
+            return;
+        }
+        if (choice == 2) {
+            if (!employee->canEditExtra()) {
+                std::cout << "该职位没有可修改的奖金或销售额。\n";
+                return;
+            }
+            const double oldValue = employee->extraValue();
+            if (!employee->editExtra()) return;
+            if (employee->extraValue() == oldValue) {
+                std::cout << "数据未发生变化，未执行修改。\n";
+                return;
+            }
+            logOperation("修改员工附加数据 | 编号=" + std::to_string(id)
+                         + " | 姓名=" + employee->name()
+                         + " | 原值=" + std::to_string(oldValue)
+                         + " | 新值=" + std::to_string(employee->extraValue()));
+            std::cout << "修改成功。\n";
+            return;
+        }
+        std::cout << "没有这个修改选项。\n";
     }
 
     void promoteEmployee() {

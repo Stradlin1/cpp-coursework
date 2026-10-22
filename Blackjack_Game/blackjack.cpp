@@ -125,6 +125,13 @@ public:
             std::cout << "输入无效，请输入 1 或 2。\n";
         }
     }
+
+    // 先发牌再展示最新手牌，便于玩家决定是否继续要牌。
+    void takeCard(Card card) {
+        receive(card);
+        if (hand_.score() > 21) hand_.busted = true;
+        hand_.show(name_);
+    }
 };
 
 class Dealer final : public Participant {
@@ -202,13 +209,8 @@ private:
         for (const auto& player : players_) {
             std::cout << "\n========== " << player->name() << " 回合 ==========\n";
             while (player->hand().score() < 21 && player->wantsCard()) {
-                player->hand().show(player->name());
-                player->receive(deck_.deal());
-                if (player->hand().score() > 21) {
-                    player->hand().busted = true;
-                    player->hand().show(player->name());
-                    break;
-                }
+                player->takeCard(deck_.deal());
+                if (player->hand().busted) break;
             }
             if (player->hand().score() == 21) std::cout << "达到21点，自动停牌。\n";
         }

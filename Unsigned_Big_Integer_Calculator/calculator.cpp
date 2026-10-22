@@ -104,27 +104,40 @@ public:
         return UnsignedBigInteger(divideStrings(*this, divisor).second);
     }
 
-    // 科学计数法保留两位有效数字，整数商和余数由同一套长除法保证正确。
+    // 用精确的整数长除法求两位有效数字和下一位用于四舍五入。
     std::string scientificQuotient(const UnsignedBigInteger& divisor) const {
         if (divisor.isZero()) throw std::domain_error("除数不能为零");
         if (isZero()) return "0.0e+0";
 
-        const long double numerator = leadingMantissa(digits_);
-        const long double denominator = leadingMantissa(divisor.digits_);
-        long double mantissa = numerator / denominator;
-        int scientificExponent =
-            static_cast<int>(digits_.size()) - static_cast<int>(divisor.digits_.size());
-        while (mantissa >= 10.0L) mantissa /= 10.0L;
-        while (mantissa < 1.0L) {
-            mantissa *= 10.0L;
-            --scientificExponent;
+        int exponent = static_cast<int>(digits_.size()) -
+                       static_cast<int>(divisor.digits_.size());
+        std::string scaledNumerator = digits_;
+        std::string scaledDenominator = divisor.digits_;
+        if (exponent >= 0) {
+            scaledDenominator.append(static_cast<size_t>(exponent), '0');
+        } else {
+            scaledNumerator.append(static_cast<size_t>(-exponent), '0');
+        }
+        UnsignedBigInteger numerator(scaledNumerator);
+        UnsignedBigInteger denominator(scaledDenominator);
+        if (numerator.compare(denominator) < 0) {
+            --exponent;
+            numerator = UnsignedBigInteger(numerator.digits_ + "0");
         }
 
-        std::ostringstream output;
-        output << std::fixed << std::setprecision(1)
-               << static_cast<double>(mantissa) << 'e'
-               << (scientificExponent >= 0 ? "+" : "") << scientificExponent;
-        return output.str();
+        // 此时 1 <= numerator/denominator < 10。
+        // 三位有效数字（含舍入位）可以通过放大 100 倍的整数商得到。
+        const UnsignedBigInteger scaled(numerator.digits_ + "00");
+        const auto parts = divideStrings(scaled, denominator);
+        const int threeDigits = std::stoi(parts.first);
+        int twoDigits = (threeDigits + 5) / 10; // 第三位 >= 5 则进位。
+        if (twoDigits == 100) {
+            twoDigits = 10;
+            ++exponent;
+        }
+        return std::to_string(twoDigits / 10) + "." +
+               std::to_string(twoDigits % 10) + "e" +
+               (exponent >= 0 ? "+" : "") + std::to_string(exponent);
     }
 
     friend std::ostream& operator<<(std::ostream& output,
@@ -167,11 +180,6 @@ private:
         digits_ = first == std::string::npos ? "0" : digits_.substr(first);
     }
 
-    static long double leadingMantissa(const std::string& digits) {
-        const size_t count = std::min<size_t>(3, digits.size());
-        return std::stold(digits.substr(0, count)) /
-               std::pow(10.0L, static_cast<int>(count) - 1);
-    }
 };
 
 namespace {

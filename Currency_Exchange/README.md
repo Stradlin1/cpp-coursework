@@ -7,7 +7,7 @@
 - 通过 `open.er-api.com` 联网查询汇率；
 - 使用 `IRateProvider` 抽象汇率来源，在线查询和文件缓存可独立替换；
 - 联网成功后保存到 `exchange_rates.cache`，网络不可用时优先读取本地缓存；
-- 本地缓存有效期为 24 小时，过期缓存不会参与兑换；
+- 本地缓存默认有效期为 24 小时；过期缓存必须由用户明确确认后才能作为参考汇率使用；
 - 在线查询、本地缓存、用户手动输入三级降级；
 - 非法菜单、负数金额和无效汇率的检查。
 
@@ -32,3 +32,5 @@ CURRENCY_EXCHANGE_OFFLINE=1 ./currency_exchange
 ```
 
 如果缓存中没有对应币种，程序会提示手动输入汇率。
+
+过期缓存交互回归测试：`python3 Currency_Exchange/tests/test_expired_cache.py`。
